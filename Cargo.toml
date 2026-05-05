@@ -1,0 +1,47 @@
+[package]
+name = "termato"
+version = "0.1.0"
+edition = "2021"
+description = "A beautiful terminal Pomodoro timer"
+license = "MIT"
+
+[[bin]]
+name = "termato"
+path = "src/main.rs"
+
+[dependencies]
+# TUI
+ratatui = "0.29"
+crossterm = "0.28"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# CLI argument parsing and shell completions
+clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
+
+# Serialization / configuration
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+# System notifications
+notify-rust = "4"
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# Directories
+dirs = "6"
+
+# Sound
+rodio = { version = "0.20", optional = true }
+
+[features]
+default = []
+sound = ["rodio"]

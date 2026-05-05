@@ -1,0 +1,26 @@
+# termato 配置文件
+# 放置于 ~/.config/termato/config.toml
+
+[timer]
+# 专注时长（分钟）
+focus_minutes = 25
+# 短休息时长（分钟）
+short_break_minutes = 5
+# 长休息时长（分钟）
+long_break_minutes = 15
+# 每完成几个番茄后进入长休息
+rounds_before_long_break = 4
+
+[notification]
+# 是否发送桌面通知
+desktop = true
+# 是否播放提示音（终端响铃）
+sound = true
+
+[theme]
+# 支持颜色名称: Red, Green, Blue, Cyan, Magenta, Yellow, White, Black
+# 也支持十六进制: "#ff5555"
+focus_color = "Red"
+break_color = "Green"
+long_break_color = "Cyan"
+digit_color = "White"
