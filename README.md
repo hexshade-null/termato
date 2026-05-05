@@ -4,6 +4,8 @@ A beautiful terminal Pomodoro timer built with Rust.
 
 ![Rust](https://img.shields.io/badge/rust-1.75%2B-orange)
 
+[中文文档](./README_zh.md)
+
 ## Features
 
 - **TUI Interface** — Large ASCII-art countdown, progress gauge, keyboard shortcuts
