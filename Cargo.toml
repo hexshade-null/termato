@@ -1,6 +1,6 @@
 [package]
 name = "termato"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "A beautiful terminal Pomodoro timer"
 license = "MIT"
@@ -13,9 +13,6 @@ path = "src/main.rs"
 # TUI
 ratatui = "0.29"
 crossterm = "0.28"
-
-# Async runtime
-tokio = { version = "1", features = ["full"] }
 
 # CLI argument parsing and shell completions
 clap = { version = "4", features = ["derive"] }
@@ -38,6 +35,15 @@ chrono = { version = "0.4", features = ["serde"] }
 
 # Directories
 dirs = "6"
+
+# Git repository detection (lightweight, no SSH/network)
+git2 = { version = "0.20", default-features = false }
+
+# Async runtime (for hooks)
+tokio = { version = "1", features = ["rt-multi-thread", "process", "sync", "time"] }
+
+# Iterator utilities (heatmap rendering)
+itertools = "0.14"
 
 # Sound
 rodio = { version = "0.20", optional = true }

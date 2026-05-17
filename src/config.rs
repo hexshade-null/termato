@@ -12,37 +12,29 @@ pub struct Config {
     pub notification: NotificationConfig,
     #[serde(default)]
     pub theme: ThemeConfig,
+    #[serde(default)]
+    pub hooks: HookConfig,
+    #[serde(default)]
+    pub ui: UiConfig,
 }
 
 /// 计时器相关配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimerConfig {
-    /// 专注时长（分钟）
     #[serde(default = "default_focus")]
     pub focus_minutes: u64,
-    /// 短休息时长（分钟）
     #[serde(default = "default_short_break")]
     pub short_break_minutes: u64,
-    /// 长休息时长（分钟）
     #[serde(default = "default_long_break")]
     pub long_break_minutes: u64,
-    /// 每轮长休息前的番茄数
     #[serde(default = "default_rounds")]
     pub rounds_before_long_break: u32,
 }
 
-fn default_focus() -> u64 {
-    25
-}
-fn default_short_break() -> u64 {
-    5
-}
-fn default_long_break() -> u64 {
-    15
-}
-fn default_rounds() -> u32 {
-    4
-}
+fn default_focus() -> u64 { 25 }
+fn default_short_break() -> u64 { 5 }
+fn default_long_break() -> u64 { 15 }
+fn default_rounds() -> u32 { 4 }
 
 impl Default for TimerConfig {
     fn default() -> Self {
@@ -58,56 +50,37 @@ impl Default for TimerConfig {
 /// 通知相关配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NotificationConfig {
-    /// 是否发送桌面通知
     #[serde(default = "default_true")]
     pub desktop: bool,
-    /// 是否播放提示音
     #[serde(default = "default_true")]
     pub sound: bool,
 }
 
-fn default_true() -> bool {
-    true
-}
+fn default_true() -> bool { true }
 
 impl Default for NotificationConfig {
     fn default() -> Self {
-        Self {
-            desktop: true,
-            sound: true,
-        }
+        Self { desktop: true, sound: true }
     }
 }
 
-/// 主题配色配置（ratatui 颜色值）
+/// 主题配色配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThemeConfig {
-    /// 专注阶段的强调色
     #[serde(default = "default_focus_color")]
     pub focus_color: String,
-    /// 休息阶段的强调色
     #[serde(default = "default_break_color")]
     pub break_color: String,
-    /// 长休息阶段的强调色
     #[serde(default = "default_long_break_color")]
     pub long_break_color: String,
-    /// 大字倒计时的颜色
     #[serde(default = "default_digit_color")]
     pub digit_color: String,
 }
 
-fn default_focus_color() -> String {
-    "Red".into()
-}
-fn default_break_color() -> String {
-    "Green".into()
-}
-fn default_long_break_color() -> String {
-    "Cyan".into()
-}
-fn default_digit_color() -> String {
-    "White".into()
-}
+fn default_focus_color() -> String { "Red".into() }
+fn default_break_color() -> String { "Green".into() }
+fn default_long_break_color() -> String { "Cyan".into() }
+fn default_digit_color() -> String { "White".into() }
 
 impl Default for ThemeConfig {
     fn default() -> Self {
@@ -116,6 +89,52 @@ impl Default for ThemeConfig {
             break_color: default_break_color(),
             long_break_color: default_long_break_color(),
             digit_color: default_digit_color(),
+        }
+    }
+}
+
+/// 钩子脚本配置：事件触发时异步执行外部 Shell 命令
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HookConfig {
+    /// 专注开始时执行的命令
+    #[serde(default)]
+    pub on_start: Option<String>,
+    /// 进入休息时执行的命令
+    #[serde(default)]
+    pub on_break: Option<String>,
+    /// 番茄完成时执行的命令
+    #[serde(default)]
+    pub on_complete: Option<String>,
+}
+
+impl Default for HookConfig {
+    fn default() -> Self {
+        Self {
+            on_start: None,
+            on_break: None,
+            on_complete: None,
+        }
+    }
+}
+
+/// UI 行为配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UiConfig {
+    /// 幽灵模式：隐藏倒计时数字，仅显示极简进度条
+    #[serde(default)]
+    pub ghost_mode: bool,
+    /// 状态文件导出路径（用于 tmux/Polybar 等外部工具读取）
+    #[serde(default = "default_status_file")]
+    pub status_file: String,
+}
+
+fn default_status_file() -> String { "/tmp/termato.status".into() }
+
+impl Default for UiConfig {
+    fn default() -> Self {
+        Self {
+            ghost_mode: false,
+            status_file: default_status_file(),
         }
     }
 }

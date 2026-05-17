@@ -1,5 +1,6 @@
 use crate::config::Config;
 use crate::data::{self, SessionRecord};
+use crate::hooks::HookEvent;
 use chrono::{DateTime, Local};
 use std::time::{Duration, Instant};
 
@@ -19,29 +20,42 @@ pub enum State {
     Paused,
 }
 
-/// 番茄钟状态机，驱动整个计时逻辑
+/// tick() 的返回值：(阶段是否完成, 需要触发的钩子事件)
+pub type TickResult = (bool, Option<HookEvent>);
+
+/// 番茄钟状态机
 pub struct PomodoroTimer {
     pub phase: Phase,
     pub state: State,
-    /// 当前阶段的总时长
     total_duration: Duration,
-    /// 阶段开始时刻
     phase_start: Option<Instant>,
-    /// 已暂停累积的时间
     paused_elapsed: Duration,
-    /// 已完成的专注次数（用于判断是否触发长休息）
     completed_focus_count: u32,
-    /// 用户指定的任务名
     pub task_name: Option<String>,
-    /// 当前阶段开始的时间戳（用于写入日志）
     session_started_at: Option<DateTime<Local>>,
-    /// 用户配置
     config: Config,
+    /// 任务队列：专注阶段开始时自动弹出下一个
+    task_queue: Vec<String>,
 }
 
 impl PomodoroTimer {
-    pub fn new(config: Config, task_name: Option<String>) -> Self {
-        let timer = Self {
+    pub fn new(config: Config, task_name: Option<String>, queue: Vec<String>) -> Self {
+        // 如果没手动指定任务名，尝试从队列弹出
+        let task_name = task_name.or_else(|| {
+            if queue.is_empty() {
+                None
+            } else {
+                Some(queue[0].clone())
+            }
+        });
+        // 第一个任务作为当前任务，剩余保留在队列
+        let task_queue = if task_name.is_some() && !queue.is_empty() {
+            queue[1..].to_vec()
+        } else {
+            queue
+        };
+
+        Self {
             phase: Phase::Focus,
             state: State::Idle,
             total_duration: Duration::from_secs(config.timer.focus_minutes * 60),
@@ -51,8 +65,8 @@ impl PomodoroTimer {
             task_name,
             session_started_at: None,
             config,
-        };
-        timer
+            task_queue,
+        }
     }
 
     /// 开始或恢复计时
@@ -64,7 +78,7 @@ impl PomodoroTimer {
         self.phase_start = Some(Instant::now());
     }
 
-    /// 暂停计时，保存已流逝时间
+    /// 暂停计时
     pub fn pause(&mut self) {
         if self.state == State::Running {
             self.paused_elapsed += self.phase_start
@@ -84,7 +98,7 @@ impl PomodoroTimer {
         }
     }
 
-    /// 重置当前阶段回到初始状态
+    /// 重置当前阶段
     pub fn reset(&mut self) {
         self.state = State::Idle;
         self.phase_start = None;
@@ -92,13 +106,13 @@ impl PomodoroTimer {
         self.session_started_at = None;
     }
 
-    /// 跳过当前阶段，记录后进入下一阶段
-    pub fn skip(&mut self) {
+    /// 跳过当前阶段
+    pub fn skip(&mut self) -> TickResult {
         self.record_session("skipped");
-        self.advance_phase();
+        let event = self.advance_phase();
+        (true, Some(event))
     }
 
-    /// 返回当前阶段已流逝的时间
     pub fn elapsed(&self) -> Duration {
         let from_pause = self.paused_elapsed;
         let from_run = self
@@ -108,38 +122,33 @@ impl PomodoroTimer {
         from_pause + from_run
     }
 
-    /// 返回剩余时间
     pub fn remaining(&self) -> Duration {
         self.total_duration.saturating_sub(self.elapsed())
     }
 
-    /// 返回进度比例 [0.0, 1.0]
     pub fn progress(&self) -> f64 {
         if self.total_duration.as_secs() == 0 {
             return 1.0;
         }
-        let elapsed = self.elapsed().as_secs_f64();
-        let total = self.total_duration.as_secs_f64();
-        (elapsed / total).clamp(0.0, 1.0)
+        (self.elapsed().as_secs_f64() / self.total_duration.as_secs_f64()).clamp(0.0, 1.0)
     }
 
-    /// 检查当前阶段是否已完成；若完成则记录并切换到下一阶段
-    /// 返回 true 表示刚完成了一个阶段
-    pub fn tick(&mut self) -> bool {
+    /// 检查当前阶段是否完成
+    pub fn tick(&mut self) -> TickResult {
         if self.state != State::Running {
-            return false;
+            return (false, None);
         }
         if self.remaining() == Duration::ZERO {
             self.record_session("completed");
-            self.advance_phase();
-            return true;
+            let event = self.advance_phase();
+            return (true, Some(event));
         }
-        false
+        (false, None)
     }
 
-    /// 推进到下一个阶段（focus -> break -> focus ...）
-    fn advance_phase(&mut self) {
-        match self.phase {
+    /// 推进到下一个阶段，返回触发的钩子事件
+    fn advance_phase(&mut self) -> HookEvent {
+        let event = match self.phase {
             Phase::Focus => {
                 self.completed_focus_count += 1;
                 if self.completed_focus_count % self.config.timer.rounds_before_long_break == 0 {
@@ -151,20 +160,31 @@ impl PomodoroTimer {
                     self.total_duration =
                         Duration::from_secs(self.config.timer.short_break_minutes * 60);
                 }
+                HookEvent::Complete
             }
             Phase::ShortBreak | Phase::LongBreak => {
                 self.phase = Phase::Focus;
                 self.total_duration = Duration::from_secs(self.config.timer.focus_minutes * 60);
+                // 自动弹出下一个任务
+                self.pop_next_task();
+                HookEvent::Break
             }
-        }
-        // 重置阶段计时
+        };
+
         self.state = State::Idle;
         self.phase_start = None;
         self.paused_elapsed = Duration::ZERO;
         self.session_started_at = None;
+        event
     }
 
-    /// 将完成的会话写入日志
+    /// 从队列弹出下一个任务
+    fn pop_next_task(&mut self) {
+        if !self.task_queue.is_empty() {
+            self.task_name = Some(self.task_queue.remove(0));
+        }
+    }
+
     fn record_session(&mut self, status: &str) {
         if let Some(started_at) = self.session_started_at.take() {
             let record = SessionRecord {
@@ -178,14 +198,12 @@ impl PomodoroTimer {
                     Phase::LongBreak => "long_break".to_string(),
                 },
             };
-            // 静默写入，日志失败不应中断计时
             if let Err(e) = data::append_record(&record) {
                 eprintln!("[termato] 写入日志失败: {e}");
             }
         }
     }
 
-    /// 当前阶段的可读标签
     pub fn phase_label(&self) -> &str {
         match self.phase {
             Phase::Focus => "Focus",
@@ -194,12 +212,14 @@ impl PomodoroTimer {
         }
     }
 
-    /// 当前完成的番茄总数
     pub fn completed_count(&self) -> u32 {
         self.completed_focus_count
     }
 
-    /// 退出时将当前进行中的会话标记为 interrupted 并写入日志
+    pub fn pending_count(&self) -> usize {
+        self.task_queue.len()
+    }
+
     pub fn record_session_on_quit(&mut self) {
         self.record_session("interrupted");
     }

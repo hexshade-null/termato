@@ -24,3 +24,18 @@ focus_color = "Red"
 break_color = "Green"
 long_break_color = "Cyan"
 digit_color = "White"
+
+[ui]
+# 幽灵模式：隐藏倒计时数字，仅显示极简提示（缓解时间焦虑）
+ghost_mode = false
+# 状态文件导出路径（供 tmux/Polybar 等外部工具读取）
+status_file = "/tmp/termato.status"
+
+[hooks]
+# 专注开始时执行的 Shell 命令（可选）
+# 环境变量: $TERMATO_EVENT, $TERMATO_TASK
+# on_start = "osascript -e 'set volume output muted true'"
+# 进入休息时执行的 Shell 命令
+# on_break = "osascript -e 'set volume output muted false'"
+# 番茄完成时执行的 Shell 命令
+# on_complete = "afplay /System/Library/Sounds/Glass.aiff"
