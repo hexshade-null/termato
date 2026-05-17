@@ -128,7 +128,14 @@ pub struct UiConfig {
     pub status_file: String,
 }
 
-fn default_status_file() -> String { "/tmp/termato.status".into() }
+fn default_status_file() -> String {
+    dirs::cache_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("termato")
+        .join("termato.status")
+        .to_string_lossy()
+        .to_string()
+}
 
 impl Default for UiConfig {
     fn default() -> Self {

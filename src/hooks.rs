@@ -29,9 +29,15 @@ pub fn fire_hook(cmd: &str, event: HookEvent, task: Option<&str>) {
             }
         };
         rt.block_on(async move {
-            let mut cmd_builder = tokio::process::Command::new("sh");
+            // Windows 使用 cmd /C，UNIX 使用 sh -c
+            let (shell, flag) = if cfg!(windows) {
+                ("cmd", "/C")
+            } else {
+                ("sh", "-c")
+            };
+            let mut cmd_builder = tokio::process::Command::new(shell);
             cmd_builder
-                .arg("-c")
+                .arg(flag)
                 .arg(&cmd)
                 .env("TERMATO_EVENT", &event_name)
                 .env("TERMATO_TASK", task.as_deref().unwrap_or(""))
