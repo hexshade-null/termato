@@ -2,6 +2,7 @@ mod config;
 mod context;
 mod data;
 mod hooks;
+mod i18n;
 mod timer;
 mod ui;
 
@@ -12,6 +13,7 @@ use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use hooks::HookEvent;
+use i18n::*;
 use notify_rust::Notification;
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
@@ -31,23 +33,23 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// 启动番茄钟 TUI 界面
+    /// Start the Pomodoro TUI
     Start {
         #[arg(short, long)]
         task: Option<String>,
     },
-    /// 显示专注统计
+    /// Show focus statistics
     Stats {
-        /// 显示年度热力图
+        /// Show yearly heatmap
         #[arg(long)]
         heatmap: bool,
     },
-    /// 添加任务到队列
+    /// Add a task to the queue
     Add {
-        /// 任务名称
+        /// Task name
         task: String,
     },
-    /// 生成 Shell 补全脚本
+    /// Generate shell completion script
     Completion {
         shell: clap_complete::Shell,
     },
@@ -58,7 +60,7 @@ enum Commands {
 fn send_notification(title: &str, body: &str, cfg: &config::Config) {
     if cfg.notification.desktop {
         if let Err(e) = Notification::new().summary(title).body(body).show() {
-            eprintln!("[termato] 桌面通知发送失败: {e}");
+            eprintln!("[termato] Notification failed: {e}");
         }
     }
     if cfg.notification.sound {
@@ -70,18 +72,20 @@ fn send_notification(title: &str, body: &str, cfg: &config::Config) {
 
 fn run_tui(task_name: Option<String>) -> Result<()> {
     let cfg = config::load_config().unwrap_or_else(|e| {
-        eprintln!("[termato] 配置加载失败，使用默认值: {e}");
+        eprintln!("[termato] Config load failed, using defaults: {e}");
         config::Config::default()
     });
 
-    // Git 自动感知：若没有手动指定 task，尝试从 cwd 获取仓库信息
+    // 初始化语言
+    i18n::set_lang(cfg.lang());
+
+    // Git 自动感知
     let task_name = task_name.or_else(|| {
         let cwd = std::env::current_dir().ok()?;
         let (repo, branch) = context::detect_git_info(&cwd)?;
         Some(format!("{repo}: {branch}"))
     });
 
-    // 读取任务队列
     let queue = data::drain_queue().unwrap_or_default();
 
     enable_raw_mode()?;
@@ -98,7 +102,6 @@ fn run_tui(task_name: Option<String>) -> Result<()> {
     let mut confirm_quit = false;
 
     loop {
-        // 渲染
         terminal.draw(|f| {
             ui::draw(f, &app, &cfg.theme, ghost_mode, tick_count);
             if confirm_quit {
@@ -112,7 +115,6 @@ fn run_tui(task_name: Option<String>) -> Result<()> {
 
         tick_count += 1;
 
-        // 导出状态文件
         context::write_status_file(
             &cfg.ui.status_file,
             &app.phase,
@@ -121,28 +123,23 @@ fn run_tui(task_name: Option<String>) -> Result<()> {
             &app.state,
         );
 
-        // 终端标题联动
         context::set_terminal_title(&app.phase, app.task_name.as_deref());
 
-        // 计时器 tick
         let (completed, hook_evt) = app.tick();
         if completed {
             let label = app.phase_label();
-            send_notification("termato", &format!("Phase complete! Next: {label}"), &cfg);
+            send_notification("termato", &notify_complete(label), &cfg);
         }
-        // 触发钩子
         if let Some(evt) = hook_evt {
             fire_hook_for_event(&cfg, &evt, app.task_name.as_deref());
         }
 
-        // 按键检测
         if event::poll(tick_interval)? {
             if let Event::Key(key) = event::read()? {
                 if key.kind != KeyEventKind::Press {
                     continue;
                 }
 
-                // 确认对话框中只处理 y/n/Esc
                 if confirm_quit {
                     match key.code {
                         KeyCode::Char('y') | KeyCode::Char('Y') => break,
@@ -156,7 +153,6 @@ fn run_tui(task_name: Option<String>) -> Result<()> {
 
                 match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => {
-                        // 专注运行中需要确认
                         if app.state == timer::State::Running
                             && app.phase == timer::Phase::Focus
                         {
@@ -177,7 +173,6 @@ fn run_tui(task_name: Option<String>) -> Result<()> {
                     KeyCode::Enter => {
                         if app.state == timer::State::Idle {
                             app.start();
-                            // 触发 on_start 钩子
                             if let Some(ref cmd) = cfg.hooks.on_start {
                                 hooks::fire_hook(cmd, HookEvent::Start, app.task_name.as_deref());
                             }
@@ -189,12 +184,10 @@ fn run_tui(task_name: Option<String>) -> Result<()> {
         }
     }
 
-    // 退出清理
     if app.state != timer::State::Idle {
         app.record_session_on_quit();
     }
     context::clear_status_file(&cfg.ui.status_file);
-    // 恢复终端标题
     print!("\x1b]0;\x07");
 
     disable_raw_mode()?;
@@ -204,7 +197,6 @@ fn run_tui(task_name: Option<String>) -> Result<()> {
     Ok(())
 }
 
-/// 根据事件类型触发对应的钩子
 fn fire_hook_for_event(cfg: &config::Config, evt: &HookEvent, task: Option<&str>) {
     let cmd = match evt {
         HookEvent::Complete => cfg.hooks.on_complete.as_deref(),
@@ -219,6 +211,12 @@ fn fire_hook_for_event(cfg: &config::Config, evt: &HookEvent, task: Option<&str>
 // ── 入口 ──────────────────────────────────────────────────
 
 fn main() -> Result<()> {
+    // 预加载配置以确定语言（影响 stats/add 等非 TUI 子命令的输出）
+    let lang = config::load_config()
+        .map(|c| c.lang())
+        .unwrap_or_default();
+    i18n::set_lang(lang);
+
     let cli = Cli::parse();
 
     match cli.command {
@@ -236,7 +234,7 @@ fn main() -> Result<()> {
         }
         Some(Commands::Add { task }) => {
             data::enqueue_task(&task)?;
-            println!("Task queued: {task}");
+            println!("{}", cli_task_queued(&task));
         }
         Some(Commands::Completion { shell }) => {
             let mut cmd = Cli::command();

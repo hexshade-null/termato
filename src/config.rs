@@ -3,9 +3,13 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+use crate::i18n::Lang;
+
 /// 主配置结构体，对应 config.toml 的顶层字段
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Config {
+    #[serde(default)]
+    pub language: Option<String>,
     #[serde(default)]
     pub timer: TimerConfig,
     #[serde(default)]
@@ -16,6 +20,15 @@ pub struct Config {
     pub hooks: HookConfig,
     #[serde(default)]
     pub ui: UiConfig,
+}
+
+impl Config {
+    pub fn lang(&self) -> Lang {
+        self.language
+            .as_deref()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_default()
+    }
 }
 
 /// 计时器相关配置

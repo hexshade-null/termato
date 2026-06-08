@@ -1,5 +1,6 @@
 use crate::config::ThemeConfig;
 use crate::data::HeatmapData;
+use crate::i18n::*;
 use crate::timer::{Phase, PomodoroTimer, State};
 use chrono::Datelike;
 use ratatui::Frame;
@@ -71,29 +72,18 @@ fn render_big_time(mmss: &str) -> Vec<String> {
 
 // ── Braille 精细进度条 ───────────────────────────────────
 
-/// Braille 2×4 点阵的 8 个位分别对应:
-///   (0,0) (1,0)
-///   (0,1) (1,1)
-///   (0,2) (1,2)
-///   (0,3) (1,3)
-/// 编码: bit0=⠁ bit1=⠂ bit2=⠄ bit3=⡀  (左列)
-///        bit4=⠈ bit5=⠐ bit6=⠠ bit7=⠀  (右列)
 const BRAILLE_BASE: u32 = 0x2800;
 
-/// 根据 progress [0,1] 生成 Braille 进度条字符串
-/// 每个字符占 2 列像素，最多占 30 个 Braille 字符 = 60 列
 fn braille_bar(progress: f64, width: usize) -> String {
-    let total_dots = width * 2; // 每个 Braille 字符 2 列
+    let total_dots = width * 2;
     let filled = ((progress * total_dots as f64).round() as usize).min(total_dots);
     let mut out = String::with_capacity(width);
     for col_pair in (0..total_dots).step_by(2) {
         let mut bits: u32 = 0;
         if col_pair < filled {
-            // 左列亮全部 4 行
             bits |= 0x01 | 0x02 | 0x04 | 0x40;
         }
         if col_pair + 1 < filled {
-            // 右列亮全部 4 行
             bits |= 0x08 | 0x10 | 0x20 | 0x80;
         }
         out.push(char::from_u32(BRAILLE_BASE + bits).unwrap_or('⠀'));
@@ -103,69 +93,28 @@ fn braille_bar(progress: f64, width: usize) -> String {
 
 // ── 休息期呼吸动画 ──────────────────────────────────────
 
-/// 根据帧号生成呼吸动画圆圈，8 帧一个循环
 fn breath_frame(tick: u64) -> Vec<String> {
     let frames = [
-        // 小 → 大
-        vec![
-            "         ",
-            "    .    ",
-            "   ( )   ",
-            "    '    ",
-            "         ",
-        ],
-        vec![
-            "         ",
-            "   .-.   ",
-            "  (   )  ",
-            "   '-'   ",
-            "         ",
-        ],
-        vec![
-            "    _    ",
-            "  .\\ /.  ",
-            " (  O  ) ",
-            "  '/ \\'  ",
-            "    '    ",
-        ],
-        vec![
-            "   ___   ",
-            "  / . \\  ",
-            " (  |  ) ",
-            "  \\ ' /  ",
-            "   '''   ",
-        ],
-        vec![
-            "  _____  ",
-            " /     \\ ",
-            "(  ~~~  )",
-            " \\_____/ ",
-            "         ",
-        ],
-        vec![
-            "   ___   ",
-            "  / . \\  ",
-            " (  |  ) ",
-            "  \\ ' /  ",
-            "   '''   ",
-        ],
-        vec![
-            "    _    ",
-            "  .\\ /.  ",
-            " (  O  ) ",
-            "  '/ \\'  ",
-            "    '    ",
-        ],
-        vec![
-            "         ",
-            "   .-.   ",
-            "  (   )  ",
-            "   '-'   ",
-            "         ",
-        ],
+        vec!["         ","    .    ","   ( )   ","    '    ","         "],
+        vec!["         ","   .-.   ","  (   )  ","   '-'   ","         "],
+        vec!["    _    ","  .\\ /.  "," (  O  ) ","  '/ \\'  ","    '    "],
+        vec!["   ___   ","  / . \\  "," (  |  ) ","  \\ ' /  ","   '''   "],
+        vec!["  _____  "," /     \\ ","(  ~~~  )"," \\_____/ ","         "],
+        vec!["   ___   ","  / . \\  "," (  |  ) ","  \\ ' /  ","   '''   "],
+        vec!["    _    ","  .\\ /.  "," (  O  ) ","  '/ \\'  ","    '    "],
+        vec!["         ","   .-.   ","  (   )  ","   '-'   ","         "],
     ];
-    let idx = (tick % 8) as usize;
-    frames[idx].iter().map(|s| s.to_string()).collect()
+    frames[(tick % 8) as usize].iter().map(|s| s.to_string()).collect()
+}
+
+// ── 阶段标签 ─────────────────────────────────────────────
+
+fn phase_text(phase: &Phase) -> &'static str {
+    match phase {
+        Phase::Focus => phase_focus(),
+        Phase::ShortBreak => phase_short_break(),
+        Phase::LongBreak => phase_long_break(),
+    }
 }
 
 // ── 主渲染函数 ──────────────────────────────────────────
@@ -178,45 +127,43 @@ pub fn draw(f: &mut Frame, timer: &PomodoroTimer, theme: &ThemeConfig, ghost_mod
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // 标题栏
-            Constraint::Min(8),    // 倒计时 / 动画
-            Constraint::Length(3),  // 进度条
-            Constraint::Length(2),  // 任务名 + 队列
-            Constraint::Length(3),  // 番茄计数
-            Constraint::Length(2),  // 快捷键
+            Constraint::Length(3),
+            Constraint::Min(8),
+            Constraint::Length(3),
+            Constraint::Length(2),
+            Constraint::Length(3),
+            Constraint::Length(2),
         ])
         .split(size);
 
     // ── 标题栏 ──
     let state_text = match timer.state {
-        State::Running => "● RUNNING",
-        State::Paused => "❚❚ PAUSED",
-        State::Idle => "○ IDLE",
+        State::Running => state_running(),
+        State::Paused => state_paused(),
+        State::Idle => state_idle(),
     };
-    let ghost_tag = if ghost_mode { " [GHOST]" } else { "" };
+    let g_tag = if ghost_mode { ghost_tag() } else { "" };
     let title = Paragraph::new(Line::from(vec![
         Span::styled(" termato ", Style::default().fg(Color::Black).bg(accent).bold()),
         Span::raw("  "),
         Span::styled(
-            format!("{} — {}{ghost_tag}", timer.phase_label(), state_text),
+            format!("{} — {}{g_tag}", phase_text(&timer.phase), state_text),
             Style::default().fg(accent).bold(),
         ),
     ]));
     f.render_widget(title, chunks[0]);
 
-    // ── 中央区域：倒计时 / 幽灵模式 / 休息动画 ──
+    // ── 中央区域 ──
     if ghost_mode {
-        // 幽灵模式：隐藏数字，显示极简提示
-        let ghost_msg = match timer.phase {
-            Phase::Focus => "Focus in progress...",
-            _ => "Take a breath...",
+        let msg = match timer.phase {
+            Phase::Focus => ghost_focus(),
+            _ => ghost_break(),
         };
-        let ghost = Paragraph::new(ghost_msg)
+        let ghost = Paragraph::new(msg)
             .style(Style::default().fg(accent))
             .alignment(Alignment::Center);
         f.render_widget(ghost, chunks[1]);
     } else if matches!(timer.phase, Phase::ShortBreak | Phase::LongBreak) {
-        // 休息期：播放呼吸动画
         let frame = breath_frame(tick_count);
         let anim = Paragraph::new(
             frame.iter().map(|l| Line::from(l.clone())).collect::<Vec<_>>(),
@@ -225,7 +172,6 @@ pub fn draw(f: &mut Frame, timer: &PomodoroTimer, theme: &ThemeConfig, ghost_mod
         .alignment(Alignment::Center);
         f.render_widget(anim, chunks[1]);
     } else {
-        // 标准大号倒计时
         let rem = timer.remaining();
         let mins = (rem.as_secs() / 60) as u32;
         let secs = (rem.as_secs() % 60) as u32;
@@ -239,11 +185,10 @@ pub fn draw(f: &mut Frame, timer: &PomodoroTimer, theme: &ThemeConfig, ghost_mod
         f.render_widget(digit_p, chunks[1]);
     }
 
-    // ── 进度条（Braille + Gauge 双模式）──
+    // ── 进度条 ──
     let progress = timer.progress();
     let bar_width = (chunks[2].width.saturating_sub(4)) as usize;
     if bar_width > 4 {
-        // Braille 精细进度条
         let bar_str = braille_bar(progress, bar_width.min(50));
         let bar_line = Paragraph::new(Line::from(vec![
             Span::styled(" ", Style::default()),
@@ -253,22 +198,21 @@ pub fn draw(f: &mut Frame, timer: &PomodoroTimer, theme: &ThemeConfig, ghost_mod
         .style(Style::default().bg(Color::DarkGray));
         f.render_widget(bar_line, chunks[2]);
     } else {
-        // 窄终端降级为 Gauge
         let gauge = Gauge::default()
             .gauge_style(Style::default().fg(accent).bg(Color::DarkGray))
             .ratio(progress);
         f.render_widget(gauge, chunks[2]);
     }
 
-    // ── 任务名 + 队列提示 ──
-    let task_text = timer.task_name.as_deref().unwrap_or("No task assigned");
+    // ── 任务名 + 队列 ──
+    let task_text = timer.task_name.as_deref().unwrap_or(label_no_task());
     let queue_hint = if timer.pending_count() > 0 {
-        format!(" (+{} queued)", timer.pending_count())
+        format!("(+{}){}", timer.pending_count(), label_queued())
     } else {
         String::new()
     };
     let task = Paragraph::new(Line::from(vec![
-        Span::styled(" Task: ", Style::default().fg(Color::DarkGray)),
+        Span::styled(label_task(), Style::default().fg(Color::DarkGray)),
         Span::styled(task_text, Style::default().fg(Color::Yellow)),
         Span::styled(&queue_hint, Style::default().fg(Color::DarkGray)),
     ]))
@@ -280,7 +224,7 @@ pub fn draw(f: &mut Frame, timer: &PomodoroTimer, theme: &ThemeConfig, ghost_mod
     let count_bar = Paragraph::new(Line::from(vec![
         Span::styled("🍅 ", Style::default()),
         Span::styled(
-            format!(" Completed: {count}  "),
+            format!("{}{count}  ", label_completed()),
             Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         ),
     ]))
@@ -290,48 +234,46 @@ pub fn draw(f: &mut Frame, timer: &PomodoroTimer, theme: &ThemeConfig, ghost_mod
     // ── 快捷键提示 ──
     let help = Paragraph::new(Line::from(vec![
         Span::styled("[Space]", Style::default().fg(accent).bold()),
-        Span::raw(" Pause "),
+        Span::raw(key_pause()),
         Span::styled("[R]", Style::default().fg(accent).bold()),
-        Span::raw(" Reset "),
+        Span::raw(key_reset()),
         Span::styled("[S]", Style::default().fg(accent).bold()),
-        Span::raw(" Skip "),
+        Span::raw(key_skip()),
         Span::styled("[Enter]", Style::default().fg(accent).bold()),
-        Span::raw(" Start "),
+        Span::raw(key_start()),
         Span::styled("[G]", Style::default().fg(accent).bold()),
-        Span::raw(" Ghost "),
+        Span::raw(key_ghost()),
         Span::styled("[Q]", Style::default().fg(accent).bold()),
-        Span::raw(" Quit "),
+        Span::raw(key_quit()),
     ]))
     .alignment(Alignment::Center)
     .style(Style::default().fg(Color::DarkGray));
     f.render_widget(help, chunks[5]);
 }
 
-/// 渲染退出确认对话框（叠加在主界面上方）
+// ── 确认对话框 ───────────────────────────────────────────
+
 pub fn draw_confirm(f: &mut Frame, _accent: Color) {
     let area = centered_rect(40, 5, f.area());
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Yellow))
-        .title(" Confirm ")
+        .title(confirm_title())
         .style(Style::default().bg(Color::DarkGray));
     let msg = Paragraph::new(Line::from(vec![
-        Span::styled(" 放弃当前专注？", Style::default().fg(Color::Yellow).bold()),
+        Span::styled(confirm_message(), Style::default().fg(Color::Yellow).bold()),
     ]))
     .block(block)
     .alignment(Alignment::Center);
     f.render_widget(msg, area);
 
-    let btn_area = Rect {
-        y: area.y + 3,
-        ..area
-    };
+    let btn_area = Rect { y: area.y + 3, ..area };
     let btn = Paragraph::new(Line::from(vec![
         Span::raw(" "),
         Span::styled("[y]", Style::default().fg(Color::Red).bold()),
-        Span::raw(" Quit  "),
+        Span::raw(format!(" {}  ", key_quit().trim())),
         Span::styled("[n/Esc]", Style::default().fg(Color::Green).bold()),
-        Span::raw(" Cancel"),
+        Span::raw(confirm_no().trim().strip_prefix("[n/Esc]").unwrap_or(" Cancel")),
     ]))
     .alignment(Alignment::Center)
     .style(Style::default().bg(Color::DarkGray));
@@ -344,42 +286,56 @@ fn centered_rect(width: u16, height: u16, r: Rect) -> Rect {
     Rect::new(x, y, width.min(r.width), height.min(r.height))
 }
 
-// ── 统计打印（非 TUI 模式）──────────────────────────────
+// ── 统计打印 ─────────────────────────────────────────────
 
 pub fn print_stats(stats: &crate::data::Stats) {
     let hours = stats.total_focus_secs / 3600;
     let mins = (stats.total_focus_secs % 3600) / 60;
     let secs = stats.total_focus_secs % 60;
 
-    println!("┌──────────────────────────────┐");
-    println!("│     termato — Today's Stats  │");
-    println!("├──────────────────────────────┤");
-    println!("│  Focus time : {hours:02}h {mins:02}m {secs:02}s       │");
-    println!("│  Completed  : {} pomodoros      │", stats.completed_pomodoros);
-    println!("│  Interrupted: {}               │", stats.interrupted);
-    println!("└──────────────────────────────┘");
+    let title = stats_title();
+    let title_w = unicode_width(title);
+    let w = title_w.max(28);
+    let top = format!("┌{}┐", "─".repeat(w + 2));
+    let mid = format!("│ {}{} │", title, " ".repeat(w - title_w));
+    let div = format!("├{}┤", "─".repeat(w + 2));
+    let bot = format!("└{}┘", "─".repeat(w + 2));
+
+    let ft = stats_focus_time();
+    let sc = stats_completed();
+    let si = stats_interrupted();
+    let ft_w = unicode_width(ft);
+    let sc_w = unicode_width(sc);
+    let si_w = unicode_width(si);
+
+    println!("{top}");
+    println!("{mid}");
+    println!("{div}");
+    println!("│ {}{:02}h {:02}m {:02}s{} │", ft, hours, mins, secs, " ".repeat(w - ft_w - 10));
+    println!("│ {}{}{} │", sc, stats.completed_pomodoros, " ".repeat(w - sc_w - 12));
+    println!("│ {}{}{} │", si, stats.interrupted, " ".repeat(w - si_w - 10));
+    println!("{bot}");
 }
 
-/// 打印过去一年的专注热力图（类似 GitHub 贡献图）
-/// 使用 Unicode 方块字符 ░▒▓█ 表示强度
+/// 计算 Unicode 字符串的终端显示宽度（CJK 字符算 2 列）
+fn unicode_width(s: &str) -> usize {
+    use unicode_width::UnicodeWidthStr;
+    s.width()
+}
+
+// ── 热力图 ──────────────────────────────────────────────
+
 pub fn print_heatmap(data: &HeatmapData) {
     if data.days.is_empty() {
-        println!("暂无历史数据。");
+        println!("{}", heatmap_empty());
         return;
     }
 
-    // 按周分组：data.days 是连续 365 天
-    // 确定每列代表一周（周一到周日），共约 53 列
     let levels = [' ', '░', '▒', '▓', '█'];
-    // 4 小时为满格
     let max_secs: f64 = 4.0 * 3600.0;
 
-    // 将天数按周对齐排列为 7 行 × N 列的网格
     let first_date = data.days[0].0;
-    // 第一天是周几决定了第一列的偏移
     let first_weekday = first_date.weekday().num_days_from_monday() as usize;
-
-    // 构建网格：grid[weekday][week_index] = char
     let total_weeks = (data.days.len() + first_weekday + 6) / 7 + 1;
     let mut grid: Vec<Vec<char>> = vec![vec![' '; total_weeks]; 7];
 
@@ -395,8 +351,11 @@ pub fn print_heatmap(data: &HeatmapData) {
         }
     }
 
-    // 月份标签
-    let month_names = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    let month_names = match current_lang() {
+        Lang::ZhCn | Lang::ZhTw => ["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月"],
+        _ => ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"],
+    };
+
     print!("     ");
     let mut last_month = 255u32;
     for w in 0..total_weeks {
@@ -412,7 +371,11 @@ pub fn print_heatmap(data: &HeatmapData) {
     }
     println!();
 
-    let day_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    let day_labels = match current_lang() {
+        Lang::ZhCn | Lang::ZhTw => ["周一", "周二", "周三", "周四", "周五", "周六", "周日"],
+        _ => ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+    };
+
     for weekday in 0..7 {
         print!("{} ", day_labels[weekday]);
         for week in 0..total_weeks {
@@ -421,5 +384,5 @@ pub fn print_heatmap(data: &HeatmapData) {
         println!();
     }
 
-    println!("\n  Less ░ ▒ ▓ █ More   (each █ ≈ 4h focus)");
+    println!("\n  {}", heatmap_legend());
 }

@@ -1,6 +1,7 @@
 use crate::config::Config;
 use crate::data::{self, SessionRecord};
 use crate::hooks::HookEvent;
+use crate::i18n;
 use chrono::{DateTime, Local};
 use std::time::{Duration, Instant};
 
@@ -206,9 +207,9 @@ impl PomodoroTimer {
 
     pub fn phase_label(&self) -> &str {
         match self.phase {
-            Phase::Focus => "Focus",
-            Phase::ShortBreak => "Short Break",
-            Phase::LongBreak => "Long Break",
+            Phase::Focus => i18n::phase_focus(),
+            Phase::ShortBreak => i18n::phase_short_break(),
+            Phase::LongBreak => i18n::phase_long_break(),
         }
     }
 

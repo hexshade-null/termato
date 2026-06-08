@@ -1,6 +1,9 @@
 # termato 配置文件
 # 放置于 ~/.config/termato/config.toml
 
+# 界面语言: "en" (English), "zh_cn" (简体中文), "zh_tw" (繁體中文)
+# language = "en"
+
 [timer]
 # 专注时长（分钟）
 focus_minutes = 25
